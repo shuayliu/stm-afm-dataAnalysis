@@ -318,15 +318,15 @@ global dataHistogram;
       plot(dataHistogram(:,1),dataHistogram(:,2),'.');
       
       %plots a histogram using an numGrid-by-numYGrid grid of bins
-      numGrid=str2double(get(handles.numXEdit,'String'));
+      numXGrid=str2double(get(handles.numXEdit,'String'));
       numYGrid=str2double(get(handles.numYEdit,'String'));
       
       xMin=min(dataHistogram(:,1));
       xMax=max(dataHistogram(:,1));
-      cell=(xMax-xMin)/numGrid;
+      cell=(xMax-xMin)/numXGrid;
       
      figure;
-     histogramN= hist3([dataHistogram(:,1),dataHistogram(:,2)],[numGrid numYGrid]);
+     histogramN= hist3([dataHistogram(:,1),dataHistogram(:,2)],[numXGrid numYGrid]);
      hist3([dataHistogram(:,1),dataHistogram(:,2)]);
      xlabel('x');
      ylabel('y');
@@ -352,7 +352,7 @@ global dataHistogram;
      %get the minXNum,maxXNum,numGrid,and the same of Y
      minXNum=str2double(get(handles.minXEdit,'String'));
      maxXNum=str2double(get(handles.maxXEdit,'String'));
-     numGrid=str2double(get(handles.numXEdit,'String'));
+     numXGrid=str2double(get(handles.numXEdit,'String'));
      
      minYNum=str2double(get(handles.minYEdit,'String'));
      maxYNum=str2double(get(handles.maxYEdit,'String'));
@@ -394,7 +394,7 @@ global dataHistogram;
           Y=temp(:,2);  
         %after rank the data we need to restrict it by minYNumandmaxYNum
         pos_min=1;
-       pos_max=row;
+        pos_max=row;
         for i=1:1:row-1
             if X(i)<=minYNum && X(i+1)>minYNum
                 pos_min=i;
@@ -405,11 +405,24 @@ global dataHistogram;
         end
         X=X(pos_min:pos_max);
         Y=Y(pos_min:pos_max);
+
         %exchange X,Y
         temp2=X;
         X=Y;
         Y=temp2;
     end
+    
+    %to avoid the min of X/Y can not reach minXEdit/minYEdit
+    if pos_min==1
+        X(1)=minXNum;
+        Y(1)=minYNum;
+    end
+    %to avoid the max of X/Y can not reach maxXEdit/maxYEdit
+    if pos_max==row
+        X(row)=manXNum;
+        Y(row)=manYNum;
+    end
+    
     
      %show result with plot , hist3 and bar3c
      cla reset;
@@ -417,8 +430,8 @@ global dataHistogram;
     
      figure;
      if dataNum~=0
-         histogramN= hist3([X,Y],[numGrid numYGrid]);
-         hist3([X,Y],[numGrid numYGrid]);
+         histogramN= hist3([X,Y],[numXGrid numYGrid]);
+         hist3([X,Y],[numXGrid numYGrid]);
         xlabel('x');
         ylabel('y');
         zlabel('z');

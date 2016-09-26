@@ -1,4 +1,4 @@
-﻿function hh = bar3c( varargin )
+function hh = bar3c( varargin )
 %BAR3C Extension of bar3, which sets the bar color corresponding to its
 %height.
 %
