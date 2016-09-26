@@ -16,7 +16,8 @@
 *.rtf	 diff=astextplain
 *.RTF	 diff=astextplain
 
-# for matlab
+# for MATLAB
+# Reference By http://cn.mathworks.com/help/matlab/matlab_prog/set-up-git-source-control.html
 *.mlx -crlf -diff -merge
 *.mat -crlf -diff -merge
 *.fig -crlf -diff -merge
