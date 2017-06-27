@@ -15,7 +15,7 @@ VERSIONS = "0.0.1 beta"
 
 
 
-def afmForceCurce(filename,mode,forceConstant):
+def afmForceCurce(filename,mode,forceConstant,step=7):
     import os
     import numpy as np
     from scipy import stats
@@ -33,15 +33,15 @@ def afmForceCurce(filename,mode,forceConstant):
     approach = {'distance':distance[:len(distance)//2],
                                     'force':force[:len(force)//2]}
     
-    if not len(force)==len(distance):
-        print("data is error that len(force) != len(distance)")
-        return
+#    if not len(force)==len(distance):
+#        print("data is error that len(force) != len(distance)")
+#        return
 
 
     # 这里的数据是倒序的，所以range从1开始，但是，作为index需要是i-1
     # 从力曲线数据中提取出扎入层状结构snap的数据
     # snap 的数据格式是x升序的，原来的格式是x逆序
-    f0 = np.mean(force[5:55])
+    f0 = stats.linregress(distance[5:105],force[5:105])[1]
     snap = {'distance':[],
             'force':[],
             'index':[]}
@@ -55,14 +55,14 @@ def afmForceCurce(filename,mode,forceConstant):
     # 用线性回归的方法计算寻找峰值,假定，当deltRsquare>0.2时，线性发生畸变
     st = {'r2':[],'index':[]}
     peak = 1
-    for i in range(5,len(snap['distance'])):
+    for i in range(step,len(snap['distance'])-step):
         # 返回值是r**2
-        st['r2'].append((stats.linregress(snap['distance'][i-5:i+5],snap['force'][i-5:i+5])[2])**2)
+        st['r2'].append((stats.linregress(snap['distance'][i-step:i+step],snap['force'][i-step:i+step])[2])**2)
         st['index'].append(snap['distance'][i])
-        if len(st['r2'])>3:
-            if (st['r2'][-2] - st['r2'][-3])>0.2:
-                peak=i
-                break
+        # 先赋值，防止出错
+        peak = i
+        if len(st['r2'])>3 and np.abs(st['r2'][-2] - st['r2'][-3])>0.2:
+            break
     
     # 根据峰值选取拟合的数据范围，
     # 为了防止峰值位置越界，后退10个数据点，如果数据少于30点，则不选用默认范围为线性区间
@@ -70,7 +70,7 @@ def afmForceCurce(filename,mode,forceConstant):
 #    print(peak)
 
 
-    peak = (peak>30 and peak-10 or peak)
+    peak = (peak>30 and peak-10 or 30)
     slope,intercept = stats.linregress(np.array(snap['distance'][:peak])\
                                            ,np.array(snap['force'][:peak]))[:2]
     
@@ -87,13 +87,55 @@ def afmForceCurce(filename,mode,forceConstant):
         
     # 矫正回零点,此时的f0已经不是原来的f0,故需从新计算矫正
     # 此时可以得到较好的转换曲线
-    approach['force'] -= min(approach['force'])
-    approach['distance'] -= min(approach['distance'])  
+    # 在基线不漂移的情况下，这样做没什么问题，但是仍然不能保证零点位置
+    # 最好的放法还是要先求出零点（台阶）位置，然后根据台阶位置计算
+    approach['distance'] -= np.mean(approach['distance'][-peak:-5])
     
+    f0 = []
+    [f0.append(_f) for _d,_f in zip(approach['distance'],approach['force']) if 20.0<_d<30.0]
+    approach['force'] -= np.mean(f0)
+
+
+
     # TODO:
     # 自动统计处层状结构的力值和距离
     # 初步的想法是：对数据进行histogram，然后统计零点出现的位置
+    d = [];f=[]
+    for _d,_f in zip(reversed(approach['distance']),reversed(approach['force'])):
+         if _d<10.0 and _f<5.0:
+             d.append(_d)
+             f.append(_f)
+             
+    stepsRange = []
+    h = np.histogram(d,bins=200)
+    for i in range(4,len(h[0][:])-4):
+        if h[0][i] != 0 and h[0][i-1]==0 and h[0][i-2]==0 and h[0][i-3]==0:
+            stepsRange.append([h[1][i],h[1][i+1]])
+            break
+            
     
+    paras={'forces':[],
+               'separation':[]}
+    for _d,_f in zip(d,f) :
+#        if len(stepsRange)>3:
+#            for i in range(0,3):
+#                if _d in stepsRange[i]:
+#                    statParas['forces'].append(_f)
+#                    statParas['separation'].append(_d)
+#                    break
+        if stepsRange[0][0] < _d < stepsRange[0][1]:
+            paras['forces'].append(_f)
+            paras['separation'].append(_d)
+            break
+    
+    
+            
+            
+            
+            
+            
+            
+    # 文件的检查与处理
     storepath,originFilename = os.path.split(filename)
     storepath = os.path.join(storepath,'result')
 #    print(storepath)
@@ -103,11 +145,24 @@ def afmForceCurce(filename,mode,forceConstant):
     if not os.path.exists(os.path.join(storepath,'transformed')):
         os.mkdir(os.path.join(storepath,'transformed'))
     
+    parasFilename = storepath + '/paras.txt'
+    
+    with open(parasFilename,'w') as f:
+        print('1st_Layer_Force \t 1st_Layer_Separation',file=f)
+        for _f,_s in zip(paras['forces'],paras['separation']):
+            print('%.13f \t %.13f'%(_f,_s),file=f)
+            
+#    np.savetxt(parasFilename,np.array([paras['forces'],paras['separation']]).T \
+#                ,delimiter='\t',header='1st_Layer_Force \t 1st_Layer_Separation')
 #    print(storepath)
     storeFilename = storepath +'\\transformed\\Tf_'+originFilename
 #    print(approach)
-    np.savetxt(storeFilename,np.array([approach['distance'],approach['force']]).T\
-               ,delimiter='\t',header='distance\tforce')
+#    np.savetxt(storeFilename,np.array([approach['distance'],approach['force']]).T\
+#               ,delimiter='\t',header='distance\tforce')
+    with open(storeFilename,'w') as f:
+        print('distance(nm) \t force(nN)',file=f)
+        for _d,_f in zip(approach['distance'],approach['force']):
+            print('%.13f \t %.13f'%(_d,_f),file=f)
             
             
 if __name__ == '__main__':
