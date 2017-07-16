@@ -25,7 +25,7 @@ F0 = {'MIN':4.0,
 VERSIONS = "0.0.1 beta"
 
 
-def getData(filename,mode,delimiter='tab'):
+def getData(filename,mode='single',delimiter='tab'):
     import numpy as np
     if mode == 'single':
         # 读取数据，根据经验，单条力曲线的skiprows=166
@@ -80,10 +80,10 @@ def getPeakByLNR(snap,stepLength=11):
         if len(st['r2'])>3 and np.abs(st['r2'][-2] - st['r2'][-3])>0.2:
             break
  
-    return peak
+    return int(peak)
 
 
-def getIntersectionByR2(snap,f0,stepLength):
+def getIntersectionByR2(snap,f0,stepLength=7):
     import numpy as np
     from scipy import stats
     # 用线性回归的方法计算寻找峰值,假定，当deltRsquare>0.2时，线性发生畸变
@@ -107,7 +107,7 @@ def getIntersectionByR2(snap,f0,stepLength):
 def getIntersectionByDefSens(snap,f0,DefSens):
     import numpy as np
     # 另一种矫正方式时采用Deflenction Sensitive直接进行校正，这种情况适用于噪音比较大的时候
-    slope = -1./DefSens
+    slope =- np.abs(1./DefSens)
     _f0 = np.mean(snap['force'][:20])
     _d0 = np.mean(snap['distance'][:20])
     # force=f0 and force=slope*(distance-_d0)+_f0的交点为((f0-_f0)/slope+_d0,f0)
@@ -149,13 +149,13 @@ def dataWashing(approach):
         if np.abs(_f - fmean) > 2.0*fsigma:
              f0.remove(_f)
              d0.remove(_d)
-        # 进一步缩小到（10.0，20。0）
+#         进一步缩小到（10.0，20。0）
         
-    f0[:] = [_f for _f,_d in zip(f0,d0) if _d<20.0 and np.abs(_f-fmean) < 2.0]
-            
-    
-    approach['force'] -= np.mean(f0)
-    
+#    f0[:] = [_f for _f,_d in zip(f0,d0) if _d<20.0 and np.abs(_f-fmean) < 2.0]
+#            
+#    
+#    approach['force'] -= np.mean(f0)
+#    
     return approach
 
 
@@ -171,12 +171,16 @@ def correct2Zero(approach,D0,F0):
     # 这样distance在数据不是很好的时候不能很好的矫正到零点
     # approach['distance'] -= np.mean(approach['distance'][-peak:-5])
     d0 = []
-    [d0.append(_d) for _d,_f in zip(approach['distance'],approach['force']) if F0['MIN']<_f<F0['MAX']]
+    f_max = np.max(approach['force']) > F0['MAX'] and F0['MAX'] or np.max(approach['force'])
+    f_min = np.max(approach['force']) < F0['MIN'] and f_max-0.3 or F0['MIN']
+    [d0.append(_d) for _d,_f in zip(approach['distance'],approach['force']) if f_min<_f<f_max]
     approach['distance'] -= np.mean(d0)
     
-    # 进一步的矫正f0,区距离在20.0 ～30.0 之间的基线
+    # 进一步的矫正f*0.800,区距离在20.0 ～30.0 之间的基线
     f0 = []
-    [f0.append(_f) for _d,_f in zip(approach['distance'],approach['force']) if D0['MIN']<_d<D0['MAX']]
+    d_max = np.max(approach['distance']) > D0['MAX'] and D0['MAX'] or np.max(approach['distance'])
+    d_min = 10.0 
+    f0[:] = [_f for _d,_f in zip(approach['distance'],approach['force']) if d_min<_d<d_max]
     approach['force'] -= np.mean(f0)
     return approach
 
@@ -185,18 +189,18 @@ def DefSensAnalysis(folder):
     import os
     import numpy as np
     from scipy import stats
-    if os.path.isdir(folder):
-        print('%s MUST BE a folder!')
+    if not os.path.isdir(folder):
+        print('%s MUST BE a folder!'%folder)
         return
     
-    DefSens = []
+    DefSenses = []
     for file in os.listdir(folder):
         _f = os.path.join(folder,file)
         
-        if not _f.endswith('.txt'):
+        if not _f.endswith('.txt') or os.path.isdir(_f):
             continue
-        
-        distance,force = getData(filename,mode)
+#        print(_f)
+        distance,force = getData(_f)
         # 把所有数据矫正到第一象限
         force -= min(force)
         distance -= min(distance)
@@ -209,36 +213,48 @@ def DefSensAnalysis(folder):
         snap = getSnap(approach,f0)
             
         stepPos = getPeakByLNR(snap)
+#        print(stepPos)
         # 根据峰值选取拟合的数据范围，
         # 为了防止峰值位置越界，后退10个数据点，如果数据少于30点，则不选用默认范围为线性区间
         stepPos = stepPos > 30 and stepPos-10 or stepPos
     #    print(peak)
-        slope, = stats.linregress(np.array(snap['distance'][:stepPos])\
-                                               ,np.array(snap['force'][:stepPos]))[:2]
+        slope = stats.linregress(np.array(snap['distance'][:stepPos])\
+                                               ,np.array(snap['force'][:stepPos]))[0]
         
-        DefSens.append(np.abs(1./slope))
+        DefSenses.append(np.abs(1./slope))
         
-
-
-    DefSens_mean = np.mean(np.array(DefSens))
-    DefSens_std = np.std(np.array(DefSens))
-    storePath = os.path.join(folder,'/result')
+    
+    storePath = os.path.join(folder,'result')
+#    print(folder)
+#    print(storePath)
     if not os.path.exists(storePath):
         os.mkdir(storePath)
         
-    storeFilename = storePath + 'DefSens.txt'
+    storeFilename = os.path.join(storePath , 'DefSenses.txt')
         
-    with open(storeFilename) as f:
+    with open(storeFilename,'w') as f:
         print('DefSens',file=f)
-        for _df in DefSens:
+        for _df in DefSenses:
             print('%.13f'%_df,file=f)
+            
+            
+    # 对数据进行清理，避免出现outlier
+    DefSens_mean = np.mean(np.array(DefSenses))
+    DefSens_std = np.std(np.array(DefSenses))
+    for _df in DefSenses:
+        if np.abs(_df-DefSens_mean) > 2.0*DefSens_std:
+            DefSenses.remove(_df)
+            
+    DefSens_mean = np.mean(np.array(DefSenses))
+    DefSens_std = np.std(np.array(DefSenses))
+    
     
     
     return DefSens_mean,DefSens_std
 
 
 
-def afmForceCurce(filename,mode,forceConstant,DefSens):
+def afmForceCurce(filename,mode,forceConstant,DefSens_mean,DefSens_std=0.0):
     import os
     import numpy as np
     import matplotlib.pyplot as plt
@@ -256,8 +272,12 @@ def afmForceCurce(filename,mode,forceConstant,DefSens):
     f0 = np.mean(force[55:105])
     snap = getSnap(approach,f0)
     
-#    intersection,slope = getIntersectionByR2(snap,f0,stepLength)
-    intersection,slope = getIntersectionByDefSens(snap,f0,DefSens)
+    intersection,slope = getIntersectionByR2(snap,f0)
+    # 如果用默认的DefSens会造成一部分曲线偏些
+    if (DefSens_mean - DefSens_std*2.0) < 1./slope < (DefSens_mean + DefSens_std*2.0):
+        DefSens = 1./slope
+        intersection,slope = getIntersectionByDefSens(snap,f0,DefSens)
+    
     approach = convert2ForceSeparation(approach,intersection,slope,forceConstant)
 
     approach = correct2Zero(approach,D0,F0)
@@ -331,6 +351,12 @@ def afmForceCurce(filename,mode,forceConstant,DefSens):
     plt.close('all')
     plt.figure(1)
     plt.plot(approach['distance'],approach['force'])
+    plt.plot([0,0],[-1,6],'--')
+    plt.plot([-1,10.0],[0,0],'--')
+    plt.xlim([-1,20])
+    plt.ylim([-0.5,6])
+    plt.xlabel('Distance (nm)')
+    plt.ylabel('Force (nN)')
     plt.savefig(storeFilename + '_fig.jpg')
 #    print(approach)
 #    np.savetxt(storeFilename,np.array([approach['distance'],approach['force']]).T\
@@ -383,6 +409,7 @@ if __name__ == '__main__':
         forceConst = conf.getfloat('Configs','ForceConstant')
         DELIMITER = str(conf.get('DataFormat','Delimiter')).lower()
         DefSens = conf.getfloat('Configs','Deflection_Sensitive')
+        
         print('read config.ini success!')
         # print(DATAFORMAT[DELIMITER])
 
@@ -421,17 +448,18 @@ if __name__ == '__main__':
 
     elif os.path.isdir(filename):
         print("data is dir")
-        print("Now dealing...")
+        # 对力曲线进行预分析
+        print("Analysing Deflection Sensitive...")
+        DefSens_mean, DefSens_std= DefSensAnalysis(filename)
+        print("Get DefSens:%.3f +- %.3f \n Now dealing..."%(DefSens_mean,DefSens_std))
         sys.stdout.write("#"*int(80)+'|')
         j=0
-        # 对力曲线进行预分析
-        DefSens_mean, = DefSensAnalysis(filename)
         for file in os.listdir(filename):
             _filename = os.path.join(filename,file)
             if os.path.isfile(_filename):
 #                print(_filename)
                 if file.endswith('.txt'):
-                    afmForceCurce(_filename,mode,forceConst,DefSens_mean)
+                    afmForceCurce(_filename,mode,forceConst,DefSens_mean,DefSens_std)
                 j+=1
                 sys.stdout.write('\r'+(j*80//len(os.listdir(filename)))*'-'+'-->|'+"\b"*3)
                 sys.stdout.flush()
