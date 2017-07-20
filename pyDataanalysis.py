@@ -16,7 +16,7 @@ D0 = {'MIN': 10.0, # 末端distance区间
       'MAX': 20.0
      }
 F0 = {'MIN':4.0,
-      'MAX':4.2
+      'MAX':6.2
       }
 
 
@@ -194,6 +194,9 @@ def DefSensAnalysis(folder):
         return
     
     DefSenses = []
+    sys.stdout.write("#"*int(82)+'|')
+    j=0
+    
     for file in os.listdir(folder):
         _f = os.path.join(folder,file)
         
@@ -223,6 +226,10 @@ def DefSensAnalysis(folder):
         
         DefSenses.append(np.abs(1./slope))
         
+        j+=1
+        sys.stdout.write('\r'+(j*80//len(os.listdir(filename)))*'-'+'-->|'+"\b"*3)
+        sys.stdout.flush()
+        
     
     storePath = os.path.join(folder,'result')
 #    print(folder)
@@ -241,9 +248,10 @@ def DefSensAnalysis(folder):
     # 对数据进行清理，避免出现outlier
     DefSens_mean = np.mean(np.array(DefSenses))
     DefSens_std = np.std(np.array(DefSenses))
-    for _df in DefSenses:
-        if np.abs(_df-DefSens_mean) > 2.0*DefSens_std:
-            DefSenses.remove(_df)
+#    for _df in DefSenses:
+#        if np.abs(_df-DefSens_mean) > 1.0*DefSens_std:
+#            DefSenses.remove(_df)
+    DefSenses[:] = [_df for _df in DefSenses if np.abs(_df-DefSens_mean) < 2.0*DefSens_std]
             
     DefSens_mean = np.mean(np.array(DefSenses))
     DefSens_std = np.std(np.array(DefSenses))
@@ -274,9 +282,13 @@ def afmForceCurce(filename,mode,forceConstant,DefSens_mean,DefSens_std=0.0):
     
     intersection,slope = getIntersectionByR2(snap,f0)
     # 如果用默认的DefSens会造成一部分曲线偏些
-    if (DefSens_mean - DefSens_std*2.0) < 1./slope < (DefSens_mean + DefSens_std*2.0):
+    if np.abs(DefSens_mean - 1./slope) < 3.0 * DefSens_std:
         DefSens = 1./slope
-        intersection,slope = getIntersectionByDefSens(snap,f0,DefSens)
+    else:
+        DefSens = DefSens_mean
+       
+#    DefSens = 1./slope 
+    intersection,slope = getIntersectionByDefSens(snap,f0,DefSens)
     
     approach = convert2ForceSeparation(approach,intersection,slope,forceConstant)
 
@@ -451,6 +463,8 @@ if __name__ == '__main__':
         # 对力曲线进行预分析
         print("Analysing Deflection Sensitive...")
         DefSens_mean, DefSens_std= DefSensAnalysis(filename)
+        times = time.clock()-startTime
+        sys.stdout.write('\nDef Sens Analysis Completed, use time:%.2f s\n'%times)
         print("Get DefSens:%.3f +- %.3f \n Now dealing..."%(DefSens_mean,DefSens_std))
         sys.stdout.write("#"*int(80)+'|')
         j=0
@@ -475,7 +489,7 @@ if __name__ == '__main__':
 
         times = time.clock() - startTime
         
-        sys.stdout.write("\nFINISHED! at %s/result \n Times: %.2f\n"%(filename,times))
+        sys.stdout.write("\nFINISHED! at %s/result \n Times: %.2f s\n"%(filename,times))
 
 
     else:
