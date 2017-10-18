@@ -15,8 +15,8 @@ COL_DISTANCE = 1
 D0 = {'MIN': 10.0, # 末端distance区间
       'MAX': 20.0
      }
-F0 = {'MIN':4.0,
-      'MAX':6.2
+F0 = {'MIN':10.0,
+      'MAX':12.5
       }
 
 
@@ -83,7 +83,7 @@ def getPeakByLNR(snap,stepLength=11):
     return int(peak)
 
 
-def getIntersectionByR2(snap,f0,stepLength=7):
+def getIntersectionByR2(snap,f0,stepLength=11):
     import numpy as np
     from scipy import stats
     # 用线性回归的方法计算寻找峰值,假定，当deltRsquare>0.2时，线性发生畸变
@@ -104,12 +104,38 @@ def getIntersectionByR2(snap,f0,stepLength=7):
     
     return intersection,slope
 
+def getDefSensByR2(snap,stepLength=11):
+    import numpy as np
+    from scipy import stats
+    # 用线性回归的方法计算寻找峰值,假定，当deltRsquare>0.2时，线性发生畸变
+    
+    stepPos = getPeakByLNR(snap,stepLength)
+    # 根据峰值选取拟合的数据范围，
+    # 为了防止峰值位置越界，后退10个数据点，如果数据少于30点，则不选用默认范围为线性区间
+    stepPos = stepPos > 30 and stepPos-10 or stepPos
+#    print(peak)
+    slope  = stats.linregress(np.array(snap['distance'][:stepPos])\
+                                           ,np.array(snap['force'][:stepPos]))[0]
+    
+    return 1./float(slope)
+
+def getDefSensByFixedLength(snap,length = 50):
+    import numpy as np
+    from scipy import stats
+    # 固定步长的方式计算Slope & intercept
+    slope = stats.linregress(np.array(snap['distance'][:length:2])\
+                                           ,np.array(snap['force'][:length:2]))[0]
+    
+    return 1./float(slope)
+    
+    
+
 def getIntersectionByDefSens(snap,f0,DefSens):
     import numpy as np
     # 另一种矫正方式时采用Deflenction Sensitive直接进行校正，这种情况适用于噪音比较大的时候
     slope =- np.abs(1./DefSens)
-    _f0 = np.mean(snap['force'][:20])
-    _d0 = np.mean(snap['distance'][:20])
+    _f0 = np.mean(snap['force'][:50])
+    _d0 = np.mean(snap['distance'][:50])
     # force=f0 and force=slope*(distance-_d0)+_f0的交点为((f0-_f0)/slope+_d0,f0)
     intersection = {}
     intersection['x'] = (f0-_f0)/slope +_d0
@@ -121,7 +147,7 @@ def convert2ForceSeparation(approach,intersection,slope,forceConstant):
     import numpy as np
     # 转换核心 copyright at Mao's Group，XMU
     approach['distance'] = approach['distance'] - intersection['x'] \
-    +(approach['force']-intersection['y'])/np.abs(slope)
+    -(approach['force']-intersection['y'])/np.abs(slope)
     approach['force'] = forceConstant*(approach['force']-intersection['y'])/np.abs(slope)
     
     return approach
@@ -180,7 +206,7 @@ def correct2Zero(approach,D0,F0):
     f0 = []
     d_max = np.max(approach['distance']) > D0['MAX'] and D0['MAX'] or np.max(approach['distance'])
     d_min = 10.0 
-    f0[:] = [_f for _d,_f in zip(approach['distance'],approach['force']) if d_min<_d<d_max]
+    f0[:] =  [_f for _d,_f in zip(approach['distance'],approach['force']) if d_min<_d<d_max]
     approach['force'] -= np.mean(f0)
     return approach
 
@@ -262,11 +288,12 @@ def DefSensAnalysis(folder):
 
 
 
-def afmForceCurce(filename,mode,forceConstant,DefSens_mean,DefSens_std=0.0):
+def afmForceCurce(filename,mode,forceConstant,DefSens_mean=-1,DefSens_std=-1,method = 'FixedLength',stepLength=7):
     import os
     import numpy as np
     import matplotlib.pyplot as plt
     
+    method = method.lower()
 
     distance,force = getData(filename,mode)
     # 把所有数据矫正到第一象限
@@ -279,15 +306,20 @@ def afmForceCurce(filename,mode,forceConstant,DefSens_mean,DefSens_std=0.0):
 #    f0 = stats.linregress(distance[55:105],force[55:105])[1]
     f0 = np.mean(force[55:105])
     snap = getSnap(approach,f0)
-    
-    intersection,slope = getIntersectionByR2(snap,f0)
-    # 如果用默认的DefSens会造成一部分曲线偏些
-    if np.abs(DefSens_mean - 1./slope) < 3.0 * DefSens_std:
-        DefSens = 1./slope
+  
+#    intersection,slope = getIntersectionByR2(snap,f0,stepLength=21)
+    if method == 'r2': 
+        DefSens = getDefSensByR2(snap,stepLength=stepLength)
     else:
-        DefSens = DefSens_mean
-       
-#    DefSens = 1./slope 
+        # 
+        DefSens = getDefSensByFixedLength(snap,length=50)
+
+#    if DefSens_mean != DefSens_std and np.abs(DefSens_mean - DefSens) > 3.0 * DefSens_std:
+#        # 如果用默认的DefSens会造成一部分曲线偏些
+#        DefSens = DefSens_mean
+
+
+
     intersection,slope = getIntersectionByDefSens(snap,f0,DefSens)
     
     approach = convert2ForceSeparation(approach,intersection,slope,forceConstant)
@@ -362,19 +394,19 @@ def afmForceCurce(filename,mode,forceConstant,DefSens_mean,DefSens_std=0.0):
     
     plt.close('all')
     plt.figure(1)
-    plt.plot(approach['distance'],approach['force'])
+    plt.plot(approach['distance'],approach['force'],'.')
     plt.plot([0,0],[-1,6],'--')
-    plt.plot([-1,10.0],[0,0],'--')
-    plt.xlim([-1,20])
+    plt.plot([-1,20.0],[0,0],'--')
+    plt.xlim([-1,15])
     plt.ylim([-0.5,6])
-    plt.xlabel('Distance (nm)')
+    plt.xlabel('Separation (nm)')
     plt.ylabel('Force (nN)')
     plt.savefig(storeFilename + '_fig.jpg')
 #    print(approach)
 #    np.savetxt(storeFilename,np.array([approach['distance'],approach['force']]).T\
 #               ,delimiter='\t',header='distance\tforce')
     with open(storeFilename+'.txt','w') as f:
-        print('distance(nm) \t force(nN)',file=f)
+        print('Separation(nm) \t Force(nN)',file=f)
         for _d,_f in zip(approach['distance'],approach['force']):
             print('%.13f \t %.13f'%(_d,_f),file=f)
             
@@ -401,14 +433,22 @@ if __name__ == '__main__':
 
     basePath = os.path.dirname(os.path.abspath(__file__))
 
-    shortArgs = 'f:m:v'
-    longArgs = ['file=', 'mode=', 'version']
+    shortArgs = 'f:m:v:tfm'
+    longArgs = ['file=', 
+				'mode=', 
+				'version',
+				'noDSA',
+				'onlyDSA','DSA'
+				'tfMethod=',
+				'stepLength=',
+				'ForceConstant=']
 
     mode = 'single'
     filename = os.path.join(basePath,"Fc.txt")
 
     opts,args = getopt.getopt(sys.argv[1:],shortArgs,longArgs)
 
+    transformMethod = 'FixedLength'
 
     # 读取配置文件
     confPath = os.path.join(basePath,'config.ini')
@@ -421,12 +461,14 @@ if __name__ == '__main__':
         forceConst = conf.getfloat('Configs','ForceConstant')
         DELIMITER = str(conf.get('DataFormat','Delimiter')).lower()
         DefSens = conf.getfloat('Configs','Deflection_Sensitive')
-        
+        transformMethod = str(conf.get('Configs','Transform_Method')).lower()
+        stepLength = int(conf.get('Configs','Step_Length'))
         print('read config.ini success!')
         # print(DATAFORMAT[DELIMITER])
 
 
-
+    DSA = True
+    onlyDSA = False
     if not len(opts) == 0:
         for opt, val in opts:
             if opt in ('-f', '--filename='):
@@ -441,6 +483,16 @@ if __name__ == '__main__':
                     print('VERSION %s'.format(VERSIONS))
                     usage()
                     sys.exit(2)
+            elif opt in ('--noDSA'):
+                DSA = False
+            elif opt in ('--onlyDSA','--DSA'):
+                onlyDSA = True
+            elif opt in ('-tfm','--tfMethod='):
+                transformMethod = str(val).lower()
+            elif opt in ('--stepLength=','--steplength='):
+                stepLength = int(val)
+            elif opt in ('--ForceConstant='):
+                forceConst = float(val)
 
 
 
@@ -460,12 +512,22 @@ if __name__ == '__main__':
 
     elif os.path.isdir(filename):
         print("data is dir")
-        # 对力曲线进行预分析
-        print("Analysing Deflection Sensitive...")
-        DefSens_mean, DefSens_std= DefSensAnalysis(filename)
-        times = time.clock()-startTime
-        sys.stdout.write('\nDef Sens Analysis Completed, use time:%.2f s\n'%times)
-        print("Get DefSens:%.3f +- %.3f \n Now dealing..."%(DefSens_mean,DefSens_std))
+        
+        if DSA:
+            # 对力曲线进行预分析
+            print("Analysing Deflection Sensitive...")
+            DefSens_mean, DefSens_std= DefSensAnalysis(filename)
+            times = time.clock()-startTime
+            sys.stdout.write('\nDef Sens Analysis Completed, use time:%.2f s\n'%times)
+            print("Get DefSens:%.3f +- %.3f"%(DefSens_mean,DefSens_std))
+            
+            if onlyDSA:
+                sys.exit()
+        else:
+            DefSens_mean = -1
+            DefSens_std = -1
+
+        print("Now dealing...")
         sys.stdout.write("#"*int(80)+'|')
         j=0
         for file in os.listdir(filename):
@@ -473,7 +535,7 @@ if __name__ == '__main__':
             if os.path.isfile(_filename):
 #                print(_filename)
                 if file.endswith('.txt'):
-                    afmForceCurce(_filename,mode,forceConst,DefSens_mean,DefSens_std)
+                    afmForceCurce(_filename,mode,forceConst,DefSens_mean,DefSens_std,method=transformMethod,stepLength=stepLength)
                 j+=1
                 sys.stdout.write('\r'+(j*80//len(os.listdir(filename)))*'-'+'-->|'+"\b"*3)
                 sys.stdout.flush()
