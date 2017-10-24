@@ -377,9 +377,10 @@ UseIndentation = False
         Calculate a deflection versus tip-sample distance curve
         '''
         x = x + y * self.DeflSens
-        I = numpy.argsort(x);
-        x = x[I]
-        y = y[I]
+        # sort the data will result a confusing on structure information
+        #I = numpy.argsort(x);
+        #x = x[I]
+        #y = y[I]
         
         return x, y        
         

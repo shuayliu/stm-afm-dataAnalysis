@@ -147,7 +147,7 @@ def convert2ForceSeparation(approach,intersection,slope,forceConstant):
     import numpy as np
     # 转换核心 copyright at Mao's Group，XMU
     approach['distance'] = approach['distance'] - intersection['x'] \
-    -(approach['force']-intersection['y'])/np.abs(slope)
+    +(approach['force']-intersection['y'])/np.abs(slope)
     approach['force'] = forceConstant*(approach['force']-intersection['y'])/np.abs(slope)
     
     return approach
