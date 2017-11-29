@@ -4,6 +4,8 @@ Created on Thu Oct 19 10:05:44 2017
 
 @author: jonah
 """
+
+VERSION = '1.0.1'
 import numpy as np
 import sys,os
 from SpectroscopyTools.ForceTools import ForceTools
@@ -71,6 +73,8 @@ def ForceCurveAnalysis(pathname):
     Data = dict()
     sens = np.nan
     kcant= np.nan
+    tipRadius =np.nan
+    steplength=np.nan
     
     
     if os.path.isfile(pathname):
@@ -82,11 +86,14 @@ def ForceCurveAnalysis(pathname):
         
         xData = Data['Distance']
         yData = Data['Force'] #in Voltage it is Deflection
+
+
         
         FDCycle = ForceTools(xData=xData,yData=yData,sens=sens,kcant=kcant)
         # Calculate Force
         Separation =  FDCycle.TraceX + FDCycle.TraceY * FDCycle.DeflSens;
         Force = FDCycle.ForceConst * FDCycle.DeflSens * FDCycle.TraceY
+
 
         # Extra Correction
         Separation =  Separation - FDCycle.MaxIndentation()
@@ -96,14 +103,23 @@ def ForceCurveAnalysis(pathname):
         AdhesionWork = FDCycle.AdhesionWork()
         MaxAdhesionForce = FDCycle.MaxAdhesionForce()
         MaxIndentation = FDCycle.MaxIndentation()
-        
-        # Save F-D Cycle with Header
+        ContactPoint = FDCycle.ContactPoint
+ 
+       # Save F-D Cycle with Header
         SavedHeader = '''Separation(nm)\tForce(nN)
 DeflSens = %.4e
 AdhesionWork = %.4e
 MaxAdhesionForce = %.4e
 MaxIndetation = %.4e
-ForceConstant = %.4e'''%(DeflSens,AdhesionWork,MaxAdhesionForce,MaxIndentation,forceConstant)
+ContactPoint  = %.4e
+ForceConstant = %.4e
+'''%(
+DeflSens,
+AdhesionWork,
+MaxAdhesionForce,
+MaxIndentation,
+ContactPoint,
+forceConstant)
         
         SavedData = np.array([Separation,Force]).T * 1e9
         
@@ -113,7 +129,8 @@ ForceConstant = %.4e'''%(DeflSens,AdhesionWork,MaxAdhesionForce,MaxIndentation,f
         if not os.path.exists(SavedPath):
             os.makedirs(SavedPath+'/Analysis')
         
-        np.savetxt(SavedPath+'/FC_'+filename,X=SavedData,delimiter='\t',header=SavedHeader)
+        np.savetxt(SavedPath+'/FC_'+filename,X=SavedData,delimiter='\t',
+                   header=SavedHeader,comments=' ')
         
         
         # Save F-D Ananysis File 
@@ -131,23 +148,30 @@ ForceConstant = %.4e'''%(DeflSens,AdhesionWork,MaxAdhesionForce,MaxIndentation,f
         with open(AnalysisFilename,'a') as f:
             print(SavedParaList, file=f, sep='\t', end='\n')  
             
-        
+       
         # Analysis slope for FD-Cycle
-        steplength = 20
-        SlopeAnalysisFilename = SavedPath +'/Analysis/Slope_' + filename
-        # SlopeResult = np.array(SlopeAnalysis(FDCycle.TraceX*1e9,FDCycle.TraceY,
-        SlopeResult = np.array(SlopeAnalysis(Separation,Force,
-                                             steplength),dtype=float).T
-        np.savetxt(SlopeAnalysisFilename,X=SlopeResult,delimiter='\t',
-                   header='Separation(nm) \t Slope \t Intercept \t R^2 \n stepLength=%i'%steplength)
+        if True == doSlopeAnalysis:
+            steplength == np.nan and 20 or steplength
+            # Default Tip Radius
+            tipRadius == np.nan and 10e-9 or tipRadius # 
+            
+            SlopeAnalysisFilename = SavedPath +'/Analysis/Slope_' + filename
+            # SlopeResult = np.array(SlopeAnalysis(FDCycle.TraceX*1e9,FDCycle.TraceY,
+            # SlopeResult = np.array(SlopeAnalysis(Separation,Force/tipRadius,
+            SlopeResult = np.array(SlopeAnalysis(Separation,Force/tipRadius,
+                                                 steplength),dtype=float).T
+                                                 
+            np.savetxt(SlopeAnalysisFilename,X=SlopeResult,delimiter='\t',
+                       header='Separation(nm) \t Slope(nN/nm) \t Intercept \t R^2 \n stepLength=%i'%steplength)
         
+        return SavedPath
         
         
         
 if __name__ == '__main__':
 
     import sys,os,getopt
-    import configparser
+    import configparser,argparse
     import pandas as pd
     import time
     startTime = time.clock()
@@ -166,27 +190,21 @@ if __name__ == '__main__':
 
     basePath = os.path.dirname(os.path.abspath(__file__))
 
-    shortArgs = 'f:m:v:tfm'
-    longArgs = ['file=', 
-				'mode=', 
-				'version',
-				'noDSA',
-				'onlyDSA','DSA'
-				'tfMethod=',
-				'stepLength=',
-				'ForceConstant=']
-
     mode = 'single'
     filename = os.path.join(basePath,"Fc.txt")
+    olnyDSA = False
+    doDSA = True
+    doSlopeAnalysis = False
 
-    opts,args = getopt.getopt(sys.argv[1:],shortArgs,longArgs)
+#    opts,args = getopt.getopt(sys.argv[1:],shortArgs,longArgs)
 
     transformMethod = 'FixedLength'
 
     # 读取配置文件
     confPath = os.path.join(basePath,'config.ini')
+    conf = configparser.ConfigParser()
+    
     if os.path.isfile(confPath):
-        conf = configparser.ConfigParser()
         conf.read(confPath)
         filename = conf.get('Configs','File_Path')
         SKIPROWS = conf.getint('DataFormat','Skiprows')
@@ -200,32 +218,32 @@ if __name__ == '__main__':
         # print(DATAFORMAT[DELIMITER])
 
 
-    if not len(opts) == 0:
-        for opt, val in opts:
-            if opt in ('-f', '--filename='):
-                filename = val
-            elif opt in ('-m', '--model='):
-                modelName = val
-                modelPath = os.path.join(basePath, 'Models/' + modelName + '.py')
-                if not os.path.exists(modelPath):
-                    print("model does not exit", file=sys.stdout)
-                    sys.exit(2)
-            elif opt in ('-v', '--version'):
-                    print('VERSION %s'.format(VERSIONS))
-                    usage()
-                    sys.exit(2)
-            elif opt in ('--noDSA'):
-                DSA = False
-            elif opt in ('--onlyDSA','--DSA'):
-                onlyDSA = True
-            elif opt in ('-tfm','--tfMethod='):
-                transformMethod = str(val).lower()
-            elif opt in ('--stepLength=','--steplength='):
-                stepLength = int(val)
-            elif opt in ('--ForceConstant='):
-                forceConst = float(val)
-
-
+        #Switch Options:
+        switchOpts = argparse.ArgumentParser(description='Switch Options:')
+       
+        switchOpts.add_argument('--DSA','--onlyDSA',action='store_true',default=False,
+                                dest='onlyDSA',help='Switch Deflection Sensitive Analysis On.')        
+        switchOpts.add_argument('--noDSA',action='store_false',default=True,
+                                dest='doDSA',help='Switch Deflection Sensitive Analysis OFF.')     
+        switchOpts.add_argument('--SlopeAnalysis','--SA',action='store_true',default=False,
+                                dest='doSlopeAnalysis',help='Switch Slope Analysis ON.')        
+        switchOpts.add_argument('-m','--model=',choices=['a'],default='a',
+                                dest='model',help='Select Analysis Model')  
+        
+        #Parse Options
+        switchOpts.add_argument('--filename', nargs='+', action='store',
+                               dest='filenames',help='file(s) to Analysis. \n ')        
+        switchOpts.add_argument('--forceConstant','--fc',nargs='?', type=float,default=np.nan,
+                               dest='forceConst', help='Manually set Force Constant for F-D Cycle')
+        
+        ffname = switchOpts.parse_args().filenames
+        onlyDSA = switchOpts.parse_args().onlyDSA
+        doDSA = switchOpts.parse_args().doDSA
+        doSlopeAnalysis = switchOpts.parse_args().doSlopeAnalysis
+        forceConst = switchOpts.parse_args().forceConst   
+        
+    
+    
 
 #    判断力常数，如果为1.0则认为力常数未作修改，抛出警告
 #    并且，力常数不能小于零
@@ -235,6 +253,8 @@ if __name__ == '__main__':
         print("ForceConstant < 0 ,it is illegal")
         sys.exit(3)
    
+    
+
 
     if os.path.isfile(filename):
         print("data is file")
@@ -243,7 +263,7 @@ if __name__ == '__main__':
 
     elif os.path.isdir(filename):
         print("data is dir")
-        print("Now dealing...")
+        print("Now dealing single file...")
         sys.stdout.write("#"*int(80)+'|')
         j=0
         for file in os.listdir(filename):
@@ -251,11 +271,43 @@ if __name__ == '__main__':
             if os.path.isfile(_filename):
 #                print(_filename)
                 if file.endswith('.txt'):
-                    ForceCurveAnalysis(_filename)
+                    savePath = ForceCurveAnalysis(_filename)
                 j+=1
                 sys.stdout.write('\r'+(j*80//len(os.listdir(filename)))*'-'+'-->|'+"\b"*3)
                 sys.stdout.flush()
 
+
+        # 将所有的单条力曲线整合，并做2D Frequency bins统计
+        print("Finish with sigle F-D Curve. Times: %.2f \n  \
+              Now merging all data..."%(time.clock()-startTime))
+        sys.stdout.write("#"*int(80)+'|')
+        j=0
+        allData=[-999.9,-999.9]
+        for file in os.listdir(savePath):
+            _filename = os.path.join(savePath,file)
+            if os.path.isfile(_filename) and file.endswith('.txt') and file.startswith('FC_'):             
+                singleData = np.loadtxt(_filename,comments=' ',unpack=True).T
+                
+                allData=np.vstack((allData,singleData))
+                j+=1
+                sys.stdout.write('\r'+(j*80//len(os.listdir(savePath)))*'-'+'->|'+"\b"*3)
+                sys.stdout.flush()
+#        print(allData=[xData,yData])
+        # 数据重新排序，按x升序
+        allData=np.delete(allData,0,axis=0)
+        I = np.argsort(allData.T[0])
+        allData.T[0][:]=allData.T[0][I]
+        allData.T[1][:]=allData.T[1][I]
+        
+        mergeDataPath = os.path.join(savePath,'mergeData.dat')
+        np.savetxt(mergeDataPath,allData,delimiter='\t')
+        
+        # histogram 2D:
+        x,y = allData.T
+        
+
+        
+        
         # 对参数文档进行分析
         # 这部分等TODO完善之后再进行uncomment
 #        paraFile = os.path.join(filename,"result/paras.txt")
