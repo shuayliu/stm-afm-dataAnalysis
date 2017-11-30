@@ -9,6 +9,8 @@ VERSION = '1.0.1'
 import numpy as np
 import sys,os
 from SpectroscopyTools.ForceTools import ForceTools
+import warnings
+warnings.filterwarnings("ignore")
 
 def SlopeAnalysis(xData,yData,steplength=25):
     from scipy import stats
@@ -278,8 +280,8 @@ if __name__ == '__main__':
 
 
         # 将所有的单条力曲线整合，并做2D Frequency bins统计
-        print("Finish with sigle F-D Curve. Times: %.2f \n  \
-              Now merging all data..."%(time.clock()-startTime))
+        print("\n Finish with sigle F-D Curve. Times: %.2f \n Now merging all data..."
+		%(time.clock()-startTime))
         sys.stdout.write("#"*int(80)+'|')
         j=0
         allData=[-999.9,-999.9]
@@ -290,7 +292,7 @@ if __name__ == '__main__':
                 
                 allData=np.vstack((allData,singleData))
                 j+=1
-                sys.stdout.write('\r'+(j*80//len(os.listdir(savePath)))*'-'+'->|'+"\b"*3)
+                sys.stdout.write('\r'+(j*80//len(os.listdir(savePath)))*'-'+'-->|'+"\b"*3)
                 sys.stdout.flush()
 #        print(allData=[xData,yData])
         # 数据重新排序，按x升序
@@ -304,7 +306,10 @@ if __name__ == '__main__':
         
         # histogram 2D:
         x,y = allData.T
-        
+        H,xedges,yedges = np.histogram2d(x,y,bins=(155,310),
+                                         range=[[-0.5,15],[-0.5,15]],normed=False)
+        histDataPath = os.path.join(savePath,'histData.dat')
+        np.savetxt(histDataPath,H.T)
 
         
         
@@ -319,7 +324,7 @@ if __name__ == '__main__':
 
         times = time.clock() - startTime
         
-        sys.stdout.write("\nFINISHED! at %s/result \n Times: %.2f s\n"%(filename,times))
+        sys.stdout.write("\n \n FINISHED! at %s/result \n Times: %.2f s\n"%(filename,times))
 
 
     else:
