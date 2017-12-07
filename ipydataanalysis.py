@@ -9,170 +9,13 @@ VERSION = '1.0.1'
 import numpy as np
 import sys,os
 from SpectroscopyTools.ForceTools import ForceTools
+from AnalysisTools.AnalysisFunctions import ForceCurveAnalysis
 import warnings
 warnings.filterwarnings("ignore")
 
-def SlopeAnalysis(xData,yData,steplength=25):
-    from scipy import stats
-    Slope = []
-    Intercept = []
-    R2 = []
-    halfStep = steplength//2
 
-    for i in range(halfStep,len(xData)-halfStep):
-        k,y0,r = stats.linregress(xData[i-halfStep:i+halfStep],
-                             yData[i-halfStep:i+halfStep])[0:3]
-        Slope.append(k)
-        Intercept.append(y0)
-        R2.append(r**2)
-    #TODO: 后面想改成所有的线性回归参数
-    return xData[halfStep:-halfStep],Slope,Intercept,R2
-
-def PicoViewAnalysis(filename):
-
-    import numpy as np
-    ParaList = dict()
-    data = dict()
-    skiprows = 0
-    
-    with open(filename,'r') as f:
-        lines = f.readlines()
-
-    # 寻找SkipRow，SkipRow之前的数据作为ParaList
-    for line in lines:
-        if  line.startswith('data'):
-            key = line[:14].strip()
-            value = line[14:].strip()
-            ParaList[key]=value
-            skiprows += 1
-            break
-        else:
-            key = line[:14].strip()
-            value = line[14:].strip()
-            ParaList[key]=value
-            skiprows += 1
-    # SkipRow之后的数据作为data
-    keys = lines[skiprows].strip().split('\t')
-    colNums = len(keys)
-    for key in keys:
-        key = key[:-3].strip()
-        data[key]= []
-    # 这里有意见比较危险的事情，假设key是按这顺序作为index
-    keys = list(data.keys())
-    for line in lines[skiprows+1:]:
-        for index in range(0,colNums):
-            _d = line.split('\t')
-            data[keys[index]].append(_d[index])
-            
-    for key in keys:
-        data[key]=np.array(data[key],dtype=float)
-            
-    return ParaList,data
-
-
-def ForceCurveAnalysis(pathname):
-    ParameterList=dict()
-    Data = dict()
-    sens = np.nan
-    kcant= np.nan
-    tipRadius =np.nan
-    steplength=np.nan
-    
-    
-    if os.path.isfile(pathname):
-        ParameterList,Data = PicoViewAnalysis(pathname)
-        
-        sens = float(ParameterList['deflectionSens'])
-        forceConstant = float(ParameterList['forceConstant'])
-        kcant = np.equal(forceConstant,1.0) and forceConstant or np.nan
-        
-        xData = Data['Distance']
-        yData = Data['Force'] #in Voltage it is Deflection
-
-
-        
-        FDCycle = ForceTools(xData=xData,yData=yData,sens=sens,kcant=kcant)
-        # Calculate Force
-        Separation =  FDCycle.TraceX + FDCycle.TraceY * FDCycle.DeflSens;
-        Force = FDCycle.ForceConst * FDCycle.DeflSens * FDCycle.TraceY
-
-
-        # Extra Correction
-        Separation =  Separation - FDCycle.MaxIndentation()
-        
-        # Get F-D cycle's parameters
-        DeflSens = FDCycle.DeflectionSensitivity()
-        AdhesionWork = FDCycle.AdhesionWork()
-        MaxAdhesionForce = FDCycle.MaxAdhesionForce()
-        MaxIndentation = FDCycle.MaxIndentation()
-        ContactPoint = FDCycle.ContactPoint
- 
-       # Save F-D Cycle with Header
-        SavedHeader = '''Separation(nm)\tForce(nN)
-DeflSens = %.4e
-AdhesionWork = %.4e
-MaxAdhesionForce = %.4e
-MaxIndetation = %.4e
-ContactPoint  = %.4e
-ForceConstant = %.4e
-'''%(
-DeflSens,
-AdhesionWork,
-MaxAdhesionForce,
-MaxIndentation,
-ContactPoint,
-forceConstant)
-        
-        SavedData = np.array([Separation,Force]).T * 1e9
-        
-        filepath,filename = os.path.split(pathname)
-        
-        SavedPath = os.path.join(filepath,'Result')
-        if not os.path.exists(SavedPath):
-            os.makedirs(SavedPath+'/Analysis')
-        
-        np.savetxt(SavedPath+'/FC_'+filename,X=SavedData,delimiter='\t',
-                   header=SavedHeader,comments=' ')
-        
-        
-        # Save F-D Ananysis File 
-        AnalysisFilename = SavedPath + '/Analysis/FDParameters.txt'
-        # Write Header
-        if not os.path.exists(AnalysisFilename):
-            with open(AnalysisFilename,'w') as f:
-                print('\t'.join(['DeflSens', 'AdhesionWork',
-                                 'MaxAdhesionForce','MaxIndentation']),
-                      file=f, sep='\t', end='\n')
-        
-        # Write parameters in append mode
-        SavedParaList = '%.4e\t%.4e\t%.4e\t%.4e'%(DeflSens,AdhesionWork,
-                                                  MaxAdhesionForce,MaxIndentation)
-        with open(AnalysisFilename,'a') as f:
-            print(SavedParaList, file=f, sep='\t', end='\n')  
-            
-       
-        # Analysis slope for FD-Cycle
-        if True == doSlopeAnalysis:
-            steplength == np.nan and 20 or steplength
-            # Default Tip Radius
-            tipRadius == np.nan and 10e-9 or tipRadius # 
-            
-            SlopeAnalysisFilename = SavedPath +'/Analysis/Slope_' + filename
-            # SlopeResult = np.array(SlopeAnalysis(FDCycle.TraceX*1e9,FDCycle.TraceY,
-            # SlopeResult = np.array(SlopeAnalysis(Separation,Force/tipRadius,
-            SlopeResult = np.array(SlopeAnalysis(Separation,Force/tipRadius,
-                                                 steplength),dtype=float).T
-                                                 
-            np.savetxt(SlopeAnalysisFilename,X=SlopeResult,delimiter='\t',
-                       header='Separation(nm) \t Slope(nN/nm) \t Intercept \t R^2 \n stepLength=%i'%steplength)
-        
-        return SavedPath
-        
-        
-        
 if __name__ == '__main__':
 
-    import sys,os,getopt
     import configparser,argparse
     import pandas as pd
     import time
@@ -234,14 +77,20 @@ if __name__ == '__main__':
         
         #Parse Options
         switchOpts.add_argument('--filename', nargs='+', action='store',
-                               dest='filenames',help='file(s) to Analysis. \n ')        
-        switchOpts.add_argument('--forceConstant','--fc',nargs='?', type=float,default=np.nan,
-                               dest='forceConst', help='Manually set Force Constant for F-D Cycle')
+                               dest='filenames',help='file(s) to Analysis. \n ')  
+
         
-        ffname = switchOpts.parse_args().filenames
-        onlyDSA = switchOpts.parse_args().onlyDSA
-        doDSA = switchOpts.parse_args().doDSA
-        doSlopeAnalysis = switchOpts.parse_args().doSlopeAnalysis
+        switchOpts.add_argument('--forceConstant','--fc',nargs='?', type=float,default=np.nan,
+                                dest='forceConst', help='Manually set Force Constant for F-D Cycle')
+        
+        switchs = dict()
+        
+        if not switchOpts.parse_args().filenames == None:
+            filename = switchOpts.parse_args().filenames
+            
+        switchs['onlyDSA'] = switchOpts.parse_args().onlyDSA
+        switchs['doDSA'] = switchOpts.parse_args().doDSA
+        switchs['doSlopeAnalysis'] = switchOpts.parse_args().doSlopeAnalysis
         forceConst = switchOpts.parse_args().forceConst   
         
     
@@ -261,19 +110,22 @@ if __name__ == '__main__':
     if os.path.isfile(filename):
         print("data is file")
         if filename.endswith('.txt'):
-            ForceCurveAnalysis(filename)
+            ForceCurveAnalysis(filename,switchs)
 
     elif os.path.isdir(filename):
-        print("data is dir")
-        print("Now dealing single file...")
+        print(" data is dir")
+        print(" Now dealing single file...")
         sys.stdout.write("#"*int(80)+'|')
+        resultPath = os.path.join(filename,'/Result')
+        if(os.path.exists(resultPath)):
+            __import__('shutil').rmtree(resultPath)
         j=0
         for file in os.listdir(filename):
             _filename = os.path.join(filename,file)
             if os.path.isfile(_filename):
 #                print(_filename)
                 if file.endswith('.txt'):
-                    savePath = ForceCurveAnalysis(_filename)
+                    savePath = ForceCurveAnalysis(_filename,switchs)
                 j+=1
                 sys.stdout.write('\r'+(j*80//len(os.listdir(filename)))*'-'+'-->|'+"\b"*3)
                 sys.stdout.flush()
@@ -302,8 +154,10 @@ if __name__ == '__main__':
         allData.T[1][:]=allData.T[1][I]
         
         mergeDataPath = os.path.join(savePath,'mergeData.dat')
+        print("\n Finish with merging F-D Curves. Now writing all data to %s..."%os.path.relpath(mergeDataPath))
+		
         np.savetxt(mergeDataPath,allData,delimiter='\t')
-        
+        print("\n Data Saved!,\n Now histograming all data...")
         # histogram 2D:
         x,y = allData.T
         H,xedges,yedges = np.histogram2d(x,y,bins=(155,310),
@@ -324,7 +178,7 @@ if __name__ == '__main__':
 
         times = time.clock() - startTime
         
-        sys.stdout.write("\n \n FINISHED! at %s/result \n Times: %.2f s\n"%(filename,times))
+        sys.stdout.write("\n \nFINISHED! at %s/result \n Times: %.2f s\n"%(filename,times))
 
 
     else:
