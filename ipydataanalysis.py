@@ -7,6 +7,7 @@ Created on Thu Oct 19 10:05:44 2017
 
 VERSION = '1.0.1'
 import numpy as np
+import pandas as pd
 import sys,os
 from SpectroscopyTools.ForceTools import ForceTools
 from AnalysisTools.AnalysisFunctions import ForceCurveAnalysis
@@ -20,18 +21,6 @@ if __name__ == '__main__':
     import pandas as pd
     import time
     startTime = time.clock()
-
-
-    def usage():
-        print('''
-        args:
-        
-        -f finelame
-        -v version
-        -m mode
-        
-        
-        ''')
 
     basePath = os.path.dirname(os.path.abspath(__file__))
 
@@ -154,10 +143,10 @@ if __name__ == '__main__':
         allData.T[1][:]=allData.T[1][I]
         
         mergeDataPath = os.path.join(savePath,'mergeData.dat')
-        print("\n Finish with merging F-D Curves. Now writing all data to %s..."%os.path.relpath(mergeDataPath))
+        print("\n Finish with merging F-D Curves. \n Now writing all data to: '%s'..."%os.path.relpath(mergeDataPath))
 		
         np.savetxt(mergeDataPath,allData,delimiter='\t')
-        print("\n Data Saved!,\n Now histograming all data...")
+        print(" Data Saved! \n\n Now histograming all data...")
         # histogram 2D:
         x,y = allData.T
         H,xedges,yedges = np.histogram2d(x,y,bins=(155,310),
@@ -169,16 +158,18 @@ if __name__ == '__main__':
         
         # 对参数文档进行分析
         # 这部分等TODO完善之后再进行uncomment
-#        paraFile = os.path.join(filename,"result/paras.txt")
-#        stat = pd.read_csv(paraFile,sep='\t',index_col=-1)
-#        gp = stat.groupby('potential')
-#        gpStat = gp.describe()
-#        gpStat.to_csv(os.path.join(filename,"result/statstistic.txt"),sep='\t')
+        print(" hist data saved at: '%s'! \n\n Now doing describe statistic on all parameters..."%os.path.relpath(histDataPath))
+
+        paraFile = os.path.join(filename,"Result/Analysis/FDParameters.txt")
+        stat = pd.read_csv(paraFile,sep='\t')
+        gp = stat.groupby(['tipX','tipY'])
+        gpStat = gp.describe()
+        gpStat.to_csv(os.path.join(filename,"Result/Analysis/statstistic.txt"),sep='\t')
         
 
         times = time.clock() - startTime
         
-        sys.stdout.write("\n \nFINISHED! at %s/result \n Times: %.2f s\n"%(filename,times))
+        sys.stdout.write("\n FINISHED! \n Times: %.2f s\n"%times)
 
 
     else:
