@@ -7,7 +7,6 @@ Created on Thu Oct 19 10:05:44 2017
 
 VERSION = '1.0.1'
 import numpy as np
-import pandas as pd
 import sys,os
 from SpectroscopyTools.ForceTools import ForceTools
 from AnalysisTools.AnalysisFunctions import ForceCurveAnalysis
@@ -15,24 +14,22 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
-if __name__ == '__main__':
 
-    import configparser,argparse
-    import pandas as pd
-    import time
-    startTime = time.clock()
+def getConfigs(basePath):
+    
+    configs = dict()
+    
+    configs['mode'] = 'single'
+    configs['olnyDSA'] = False
+    configs['doDSA'] = True
+    configs['doSlopeAnalysis'] = False
+    configs['miEXTS']=['.txt','.mi']
 
-    basePath = os.path.dirname(os.path.abspath(__file__))
 
-    mode = 'single'
-    filename = os.path.join(basePath,"Fc.txt")
-    olnyDSA = False
-    doDSA = True
-    doSlopeAnalysis = False
 
 #    opts,args = getopt.getopt(sys.argv[1:],shortArgs,longArgs)
 
-    transformMethod = 'FixedLength'
+#    transformMethod = 'FixedLength'
 
     # 读取配置文件
     confPath = os.path.join(basePath,'config.ini')
@@ -40,14 +37,14 @@ if __name__ == '__main__':
     
     if os.path.isfile(confPath):
         conf.read(confPath)
-        filename = conf.get('Configs','File_Path')
-        SKIPROWS = conf.getint('DataFormat','Skiprows')
-        mode = conf.get('Configs','Mode')
-        forceConst = conf.getfloat('Configs','ForceConstant')
-        DELIMITER = str(conf.get('DataFormat','Delimiter')).lower()
-        DefSens = conf.getfloat('Configs','Deflection_Sensitive')
-        transformMethod = str(conf.get('Configs','Transform_Method')).lower()
-        stepLength = int(conf.get('Configs','Step_Length'))
+        configs['filename'] = os.path.abspath(conf.get('Configs','File_Path'))
+        configs['SKIPROWS'] = conf.getint('DataFormat','Skiprows')
+        configs['mode'] = conf.get('Configs','Mode')
+        configs['forceConst'] = conf.getfloat('Configs','ForceConstant')
+        configs['DELIMITER'] = str(conf.get('DataFormat','Delimiter')).lower()
+        configs['DefSens'] = conf.getfloat('Configs','Deflection_Sensitive')
+        configs['transformMethod'] = str(conf.get('Configs','Transform_Method')).lower()
+        configs['stepLength'] = int(conf.get('Configs','Step_Length'))
         print('read config.ini success!')
         # print(DATAFORMAT[DELIMITER])
 
@@ -72,24 +69,118 @@ if __name__ == '__main__':
         switchOpts.add_argument('--forceConstant','--fc',nargs='?', type=float,default=np.nan,
                                 dest='forceConst', help='Manually set Force Constant for F-D Cycle')
         
-        switchs = dict()
         
         if not switchOpts.parse_args().filenames == None:
-            filename = switchOpts.parse_args().filenames
+            configs['filename'] = os.path.abspath(switchOpts.parse_args().filenames)
             
-        switchs['onlyDSA'] = switchOpts.parse_args().onlyDSA
-        switchs['doDSA'] = switchOpts.parse_args().doDSA
-        switchs['doSlopeAnalysis'] = switchOpts.parse_args().doSlopeAnalysis
-        forceConst = switchOpts.parse_args().forceConst   
+        if not switchOpts.parse_args().forceConst == np.nan:
+            configs['forceConst'] = switchOpts.parse_args().forceConst
+
+            
+        configs['onlyDSA'] = switchOpts.parse_args().onlyDSA
+        configs['doDSA'] = switchOpts.parse_args().doDSA
+        configs['doSlopeAnalysis'] = switchOpts.parse_args().doSlopeAnalysis
         
+        
+        
+        return configs
+
+
+def dealingwithSingleDir(dirName):
+    print("#"*int(30)+"--  Now Start Dealing  --"+"#"*int(27))
+    print(" %s is dir"%os.path.split(dirName)[1])
+    print(" Now dealing single file...")
+    sys.stdout.write("#"*int(80)+'|')
+    resultPath = os.path.join(dirName,'Result')
+    
+    if(os.path.exists(resultPath)):
+        __import__('shutil').rmtree(resultPath)
+    j=0
+    for file in os.listdir(dirName):
+        _filename = os.path.join(dirName,file)
+        if os.path.isfile(_filename):
+#                print(_filename)
+            if file.endswith('.txt'):
+                savePath = ForceCurveAnalysis(_filename,configs)
+            j+=1
+            sys.stdout.write('\r'+(j*80//len(os.listdir(dirName)))*'-'+'-->|'+"\b"*3)
+            sys.stdout.flush()
+
+
+    # 将所有的单条力曲线整合，并做2D Frequency bins统计
+    print("\n Finish with sigle F-D Curve. Times: %.2f \n Now merging all data..."
+		%(time.clock()-startTime))
+    sys.stdout.write("#"*int(80)+'|')
+    j=0
+    allData=[-999.9,-999.9]
+    for file in os.listdir(savePath):
+        _filename = os.path.join(savePath,file)
+        if os.path.isfile(_filename) and file.endswith('.txt') and file.startswith('FC_'):             
+            singleData = np.loadtxt(_filename,comments=' ',unpack=True).T
+            
+            allData=np.vstack((allData,singleData))
+            j+=1
+            sys.stdout.write('\r'+(j*80//len(os.listdir(savePath)))*'-'+'-->|'+"\b"*3)
+            sys.stdout.flush()
+#        print(allData=[xData,yData])
+    # 数据重新排序，按x升序
+    allData=np.delete(allData,0,axis=0)
+    I = np.argsort(allData.T[0])
+    allData.T[0][:]=allData.T[0][I]
+    allData.T[1][:]=allData.T[1][I]
+    
+    mergeDataPath = os.path.join(savePath,'mergeData_%s.dat'%os.path.split(dirName)[1])
+    print("\n Finish with merging F-D Curves. \n Now writing all data to: '%s'..."%os.path.relpath(mergeDataPath))
+		
+    np.savetxt(mergeDataPath,allData,delimiter='\t')
+    print(" Data Saved! \n\n Now histograming all data...")
+    # histogram 2D:
+    x,y = allData.T
+    H,xedges,yedges = np.histogram2d(x,y,bins=(155,310),
+                                     range=[[-0.5,15],[-0.5,15]],normed=False)
+    histDataPath = os.path.join(savePath,'histData_%s.dat'%os.path.split(dirName)[1])
+    np.savetxt(histDataPath,H.T)
+
     
     
+    # 对参数文档进行分析
+    # 这部分等TODO完善之后再进行uncomment
+    print(" hist data saved at: '%s'! \n\n Now doing describe statistic on all parameters..."%os.path.relpath(histDataPath))
+    import pandas as pd
+
+    paraFile = os.path.join(dirName,"Result/Analysis/FDParameters.txt")
+    stat = pd.read_csv(paraFile,sep='\t')
+    gp = stat.groupby(['tipX','tipY'])
+    gpStat = gp.describe()
+    gpStat.to_csv(os.path.join(dirName,"Result/Analysis/statstistic.txt"),sep='\t')
+    
+
+    times = time.clock() - startTime
+    
+    sys.stdout.write("\n FINISHED! \n Times: %.2f s\n"%times)
+
+
+
+
+
+if __name__ == '__main__':
+
+    import configparser,argparse
+    import time
+    startTime = time.clock()
+
+    basePath = os.path.dirname(os.path.abspath(__file__))
+    filename = os.path.join(basePath,"Fc.txt")
+    
+    configs = getConfigs(basePath)
+    filename = configs['filename']
+
 
 #    判断力常数，如果为1.0则认为力常数未作修改，抛出警告
 #    并且，力常数不能小于零
-    if forceConst == 1.0:
+    if configs['forceConst'] == 1.0:
         print('you MAY NOT set the proper ForceConstant, but the programme will keep going' )
-    elif forceConst <0:
+    elif configs['forceConst'] <0:
         print("ForceConstant < 0 ,it is illegal")
         sys.exit(3)
    
@@ -99,78 +190,20 @@ if __name__ == '__main__':
     if os.path.isfile(filename):
         print("data is file")
         if filename.endswith('.txt'):
-            ForceCurveAnalysis(filename,switchs)
+            ForceCurveAnalysis(filename,configs)
 
     elif os.path.isdir(filename):
-        print(" data is dir")
-        print(" Now dealing single file...")
-        sys.stdout.write("#"*int(80)+'|')
-        resultPath = os.path.join(filename,'/Result')
-        if(os.path.exists(resultPath)):
-            __import__('shutil').rmtree(resultPath)
-        j=0
-        for file in os.listdir(filename):
-            _filename = os.path.join(filename,file)
-            if os.path.isfile(_filename):
-#                print(_filename)
-                if file.endswith('.txt'):
-                    savePath = ForceCurveAnalysis(_filename,switchs)
-                j+=1
-                sys.stdout.write('\r'+(j*80//len(os.listdir(filename)))*'-'+'-->|'+"\b"*3)
-                sys.stdout.flush()
-
-
-        # 将所有的单条力曲线整合，并做2D Frequency bins统计
-        print("\n Finish with sigle F-D Curve. Times: %.2f \n Now merging all data..."
-		%(time.clock()-startTime))
-        sys.stdout.write("#"*int(80)+'|')
-        j=0
-        allData=[-999.9,-999.9]
-        for file in os.listdir(savePath):
-            _filename = os.path.join(savePath,file)
-            if os.path.isfile(_filename) and file.endswith('.txt') and file.startswith('FC_'):             
-                singleData = np.loadtxt(_filename,comments=' ',unpack=True).T
+        dirs = [d for d in os.listdir(filename) if not 'esult' in d and os.path.isdir(os.path.join(filename,d))]
+        if dirs:
+            for d in dirs:
+                dealingwithSingleDir(os.path.join(filename,d))            
+        else:
+            dealingwithSingleDir(filename)
+        
+        print('\n' + "#"*int(82) + '\n')
+        times = time.clock()-startTime
+        print("Total time:%.2f"%times)
                 
-                allData=np.vstack((allData,singleData))
-                j+=1
-                sys.stdout.write('\r'+(j*80//len(os.listdir(savePath)))*'-'+'-->|'+"\b"*3)
-                sys.stdout.flush()
-#        print(allData=[xData,yData])
-        # 数据重新排序，按x升序
-        allData=np.delete(allData,0,axis=0)
-        I = np.argsort(allData.T[0])
-        allData.T[0][:]=allData.T[0][I]
-        allData.T[1][:]=allData.T[1][I]
-        
-        mergeDataPath = os.path.join(savePath,'mergeData.dat')
-        print("\n Finish with merging F-D Curves. \n Now writing all data to: '%s'..."%os.path.relpath(mergeDataPath))
-		
-        np.savetxt(mergeDataPath,allData,delimiter='\t')
-        print(" Data Saved! \n\n Now histograming all data...")
-        # histogram 2D:
-        x,y = allData.T
-        H,xedges,yedges = np.histogram2d(x,y,bins=(155,310),
-                                         range=[[-0.5,15],[-0.5,15]],normed=False)
-        histDataPath = os.path.join(savePath,'histData.dat')
-        np.savetxt(histDataPath,H.T)
-
-        
-        
-        # 对参数文档进行分析
-        # 这部分等TODO完善之后再进行uncomment
-        print(" hist data saved at: '%s'! \n\n Now doing describe statistic on all parameters..."%os.path.relpath(histDataPath))
-
-        paraFile = os.path.join(filename,"Result/Analysis/FDParameters.txt")
-        stat = pd.read_csv(paraFile,sep='\t')
-        gp = stat.groupby(['tipX','tipY'])
-        gpStat = gp.describe()
-        gpStat.to_csv(os.path.join(filename,"Result/Analysis/statstistic.txt"),sep='\t')
-        
-
-        times = time.clock() - startTime
-        
-        sys.stdout.write("\n FINISHED! \n Times: %.2f s\n"%times)
-
 
     else:
         print("Parameter of programme error")
